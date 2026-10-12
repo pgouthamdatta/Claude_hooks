@@ -1,0 +1,39 @@
+# Copy this file into a specific repo's .github/workflows/branch-name-check.yml to get a
+# PR-blocking CI check for the Jira-key branch-naming convention. This is the one piece
+# that can't be installed globally (GitHub Actions/branch protection are per-repository —
+# see the kit's README "Limitations" section) — a repo maintainer has to add this file
+# themselves and then enable "Require status checks to pass" in that repo's branch
+# protection settings, selecting this job.
+#
+# Self-contained on purpose (the check logic is inlined, not sourced from the kit) so
+# this file works correctly even if the kit itself was never cloned on the CI runner.
+# Keep the pattern here in sync with scripts/check-branch-name.sh if you change one.
+
+name: branch-name-check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      # Adjust for a repo whose Jira project key isn't NR, or add more exempt branches.
+      PROJECT_KEY_PATTERN: "[A-Z][A-Z0-9]*"
+      EXEMPT_BRANCHES: "main master develop"
+    steps:
+      - name: Validate branch name
+        run: |
+          branch="${{ github.head_ref }}"
+          for exempt in $EXEMPT_BRANCHES; do
+            if [ "$branch" = "$exempt" ]; then
+              echo "Exempt branch '${branch}' — skipping."
+              exit 0
+            fi
+          done
+          if ! printf '%s' "$branch" | grep -Eq "^${PROJECT_KEY_PATTERN}-[0-9]+"; then
+            echo "::error::Branch '${branch}' doesn't start with a Jira issue key (expected ^${PROJECT_KEY_PATTERN}-[0-9]+, e.g. NR-12345-short-description)."
+            exit 1
+          fi
+          echo "Branch '${branch}' OK."

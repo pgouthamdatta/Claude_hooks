@@ -1,0 +1,32 @@
+#!/bin/sh
+# AIM-hackathon-hooks — global pre-commit hook, installed via:
+#   git config --global core.hooksPath <this-dir>
+#
+# Runs in whichever repo triggered the commit (git invokes hooksPath hooks with CWD set
+# to that repo), so this needs no per-repo installation to apply the branch-name check
+# everywhere. IMPORTANT: a repo that sets its own core.hooksPath LOCALLY (e.g. Husky's
+# `prepare` script does this on `npm install`) overrides this hook entirely — git applies
+# local config over global, silently, so this script never even runs there. Such a repo
+# needs the line in templates/pre-commit-line.sh added to its own hook by hand; see the
+# kit's README "Limitations" section.
+#
+# The chaining below only helps the narrower case where a repo HAS hook files present
+# (.husky/pre-commit, or a plain .git/hooks/pre-commit) but hasn't actually pointed git
+# at them locally — so this kit's global hook is the one that's running, and without this
+# chain, that repo's own checks would otherwise never fire at all.
+
+set -eu
+
+KIT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+sh "${KIT_DIR}/scripts/check-branch-name.sh"
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+for candidate in "${REPO_ROOT}/.husky/pre-commit" "${REPO_ROOT}/.git/hooks/pre-commit"; do
+  if [ -f "$candidate" ] && [ -x "$candidate" ]; then
+    sh "$candidate"
+    break
+  fi
+done
+
+exit 0

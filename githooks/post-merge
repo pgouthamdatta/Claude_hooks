@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# AIM-hackathon-hooks — global post-merge hook, installed via:
+#   git config --global core.hooksPath <this-dir>
+#
+# Rebuilds a diff-aware knowledge graph of the repo that just merged, as a delta off the
+# previous merge, so Claude Code can read a compact summary instead of re-scanning the
+# whole tree on every prompt. Relocated, unmodified logic from this org's existing
+# .tokenwise/post-merge.sh — it already operates relative to the current working
+# directory (git invokes hooksPath hooks with CWD set to the repo that merged), so it
+# writes *that* repo's own .tokenwise/repo-graph.json, not anything inside this kit.
+# That's deliberate: the graph travels with the repo it describes, committed into that
+# repo's own git history, not a kit-wide artifact.
+#
+# This is a scaffold: the `dev-cost-graphify` builder is invoked if present, else this
+# no-ops with a clear message. Never fails a merge (exits 0).
+
+set -uo pipefail
+
+GRAPH_DIR=".tokenwise"
+GRAPH_FILE="${GRAPH_DIR}/repo-graph.json"
+
+changed="$(git diff-tree -r --name-only --no-commit-id ORIG_HEAD HEAD 2>/dev/null || true)"
+
+if [[ -n "$changed" ]]; then
+  mkdir -p "$GRAPH_DIR"
+
+  if command -v dev-cost-graphify >/dev/null 2>&1; then
+    printf '%s\n' "$changed" | dev-cost-graphify update --graph "$GRAPH_FILE" --stdin-paths
+  else
+    ts="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    n="$(printf '%s\n' "$changed" | grep -c . || echo 0)"
+    echo "{\"updatedAt\":\"${ts}\",\"changedFiles\":${n},\"note\":\"install dev-cost CLI to build the real graph\"}" > "$GRAPH_FILE"
+    echo "tokenwise: recorded ${n} changed files to ${GRAPH_FILE} (graphify builder not installed)"
+  fi
+fi
+
+# Chain to the repo's own post-merge hook, if it has one sitting unused for the same
+# reason described in githooks/pre-commit.
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+for candidate in "${REPO_ROOT}/.husky/post-merge" "${REPO_ROOT}/.git/hooks/post-merge"; do
+  if [[ -f "$candidate" && -x "$candidate" ]]; then
+    "$candidate"
+    break
+  fi
+done
+
+exit 0
