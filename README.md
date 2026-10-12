@@ -1,6 +1,6 @@
 # AIM-hackathon-hooks
 
-One clone, one install step, and three things work in every repo on this machine from
+One clone, one install step, and four things work in every repo on this machine from
 then on:
 
 1. **Branch-name enforcement** — every branch must start with a Jira key
@@ -10,29 +10,40 @@ then on:
    OTLP export, so Claude Code usage is attributable to the ticket it shipped.
 3. **Repo-knowledge-graph rebuild** — a git `post-merge` hook that rebuilds a diff-aware
    graph of whichever repo just merged (via the optional `dev-cost-graphify` command).
+4. **Per-task cost breakdown** (`claude-cost-tracker`, bundled) — 4 Claude Code hooks
+   feeding a `watcher.js` daemon, auto-started and kept running via `launchd` on macOS,
+   that writes `ClaudeTaskCost`/`ClaudeAntiPattern` events — without this, the Dev Cost
+   dashboard's `BranchDrawer` shows "No per-task breakdown found."
 
 ## Install
 
 ```sh
 git clone <this-repo-url>
 cd AIM-hackathon-hooks
-./install.sh --nr-ingest-key YOUR_NEW_RELIC_INGEST_KEY
-# or: NEW_RELIC_INGEST_KEY=YOUR_KEY ./install.sh
+./install.sh --nr-ingest-key YOUR_INGEST_KEY --nr-account-id YOUR_ACCOUNT_ID
 ```
 
-Same convention as this org's existing `@newrelic/dev-cost init` CLI
-(`cli/src/init.js` in `aim-payback-hackethon-2026`): you supply and own your own New
-Relic ingest key — nothing is baked into this kit, and your key is never echoed or
-logged by `install.sh`.
+`--nr-account-id` is technically optional (see Limitation 3 below for what you lose
+without it), but recommended by default — without it, both the `ClaudeSessionBranch`
+bridge and the bundled `claude-cost-tracker` watcher have no ticket/account to attribute
+data to, and the Dev Cost dashboard won't show anything useful even though telemetry is
+flowing. Same per-installer-owns-their-own-credentials convention as this org's existing
+`@newrelic/dev-cost init` CLI (`cli/src/init.js` in `aim-payback-hackethon-2026`) —
+nothing is baked into this kit, and nothing you pass is ever echoed or logged.
 
 That's it — one time, machine-wide. `install.sh`:
 1. Sets `git config --global core.hooksPath` to this kit's `githooks/` directory, so the
    branch-name check and the repo-graph rebuild fire in every local repo automatically.
-2. Installs the telemetry hook + its exporter config to `~/.tokenwise/` — with *your* key
-   substituted into `env.sh` — and registers the hook in `~/.claude/settings.json`
-   (merging with `jq` if available, otherwise printing the snippet for you to paste in by
-   hand — it never overwrites an existing settings file).
-3. Prints the Limitations below, once, right when they're relevant.
+2. Installs the telemetry hook + its exporter config to `~/.tokenwise/` — with *your*
+   values substituted into `env.sh`.
+3. Registers the `SessionStart` hook in `~/.claude/settings.json` (merging with `jq` if
+   available, otherwise printing the snippet for you to paste in by hand — it never
+   overwrites an existing settings file).
+4. Installs `claude-cost-tracker` to `~/.claude-cost-tracker/`, registers its 4 hooks,
+   and starts `watcher.js` via a `launchd` user agent (`KeepAlive`+`RunAtLoad`, so it
+   survives crashes and reboots) — skipped if that directory already has real
+   accumulated state in it, so a pre-existing manual install is never overwritten.
+5. Prints the Limitations below, once, right when they're relevant.
 
 ## If you also want a CI-enforced check in a specific repo
 
@@ -70,3 +81,10 @@ and can't be scripted.
    whichever repo* just merged, because that's the whole point (a graph that travels with
    that repo's own code, shared via that repo's own git history) — it's not a kit-wide
    artifact.
+5. **`claude-cost-tracker`'s auto-start is macOS-only** (`launchd`). On a non-macOS
+   machine the 4 hooks still get registered, but you'd need to start `watcher.js`
+   yourself (`node ~/.claude-cost-tracker/watcher.js &`) and keep it running.
+6. **Two `watcher.js` processes double-post every task.** If this machine already runs
+   `claude-cost-tracker` manually from a different path, stop that one before relying
+   on this install's `launchd`-managed instance — `install.sh` warns if it detects more
+   than one running, but doesn't stop either for you.

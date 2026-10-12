@@ -1,0 +1,11 @@
+{
+  "name": "claude-cost-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standalone per-task Claude Code cost tracker. Reads real transcript-derived token usage (no self-reporting, no estimation) and logs USD cost per task.",
+  "scripts": {
+    "install-hooks": "node install.js",
+    "uninstall-hooks": "node install.js --uninstall",
+    "watch": "node watcher.js"
+  }
+}
