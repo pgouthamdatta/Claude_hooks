@@ -64,6 +64,20 @@ const TRANSCRIPT_READ_CAP_BYTES = 1_048_576; // 1 MB per poll — bounds worst-c
 // event (same spirit as jira-proxy-server.js's MAX_FILTER_LENGTH in the other repo).
 const MAX_PROMPT_LENGTH = 4000;
 
+/**
+ * Reduces a prompt to just its first and last word before it's sent to NRDB — e.g.
+ * "Suppose the server is down, what should I check first" becomes "Suppose *** first".
+ * The point is that NRDB (an external, cloud-hosted destination) never receives or
+ * stores the actual prompt content, only this fixed, non-sensitive shape; cost-log.jsonl
+ * (local-only, never leaves this machine) keeps the real text unmasked for your own
+ * debugging — only the sendEvent('ClaudeTaskCost', ...) call below uses this.
+ */
+function maskPromptForNrdb(text) {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length <= 1) return words[0] ?? '';
+  return `${words[0]} *** ${words[words.length - 1]}`;
+}
+
 /** @type {Map<string, SessionState>} */
 const sessionStates = new Map();
 
@@ -446,13 +460,14 @@ function closeTask(sessionId, state) {
   // Fire-and-forget — mirrors ~/.claude/hooks/git-branch-context.sh's own
   // mechanism (NR Events API, not OTel). Never awaited: a slow or failed
   // New Relic call must never delay the next poll cycle.
+  const maskedPrompt = prompt ? maskPromptForNrdb(prompt) : prompt;
   sendEvent('ClaudeTaskCost', {
     session_id: record.sessionId,
     task_id: record.taskId,
     cost_usd: record.totalCostUsd,
     tokens: record.totalTokens,
     duration_ms: record.endTime - record.startTime,
-    ...(prompt && { prompt }),
+    ...(maskedPrompt && { prompt: maskedPrompt }),
   });
 
   for (const pattern of analyze(task.toolCalls)) {
